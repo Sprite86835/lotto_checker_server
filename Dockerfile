@@ -1,26 +1,26 @@
-# Basis-Image mit Python
-FROM python:3.11-slim
+FROM python:3.10-slim
 
-# Tesseract und Abhängigkeiten installieren
+# Install required system packages
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     libglib2.0-0 \
     libsm6 \
+    libxrender1 \
     libxext6 \
-    libxrender-dev \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
-# Arbeitsverzeichnis setzen
+# Set working directory
 WORKDIR /app
 
-# Projektdateien kopieren
-COPY . /app
+# Copy project files
+COPY . .
 
-# Python-Abhängigkeiten installieren
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
 
-# Flask-Port setzen
-ENV PORT=5000
+# Expose port (Render looks for 5000 by default)
+EXPOSE 5000
 
-# Startbefehl
+# Start the app
 CMD ["python", "app.py"]
