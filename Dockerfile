@@ -1,19 +1,25 @@
-FROM python:3.10-slim
+# Basis-Image mit Python 3.13 slim
+FROM python:3.13-slim
 
-# Install system dependencies
+# Systemabhängigkeiten installieren (libgl1 für OpenCV, tesseract für OCR)
 RUN apt-get update && apt-get install -y \
+    libgl1 \
     tesseract-ocr \
-    libglib2.0-0 \
-    libsm6 \
-    libxrender1 \
-    libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
+# Arbeitsverzeichnis im Container
 WORKDIR /app
+
+# Anforderungen kopieren und installieren
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Quellcode kopieren
 COPY . .
 
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
-
+# Port für Flask-Anwendung (Standard 5000)
 EXPOSE 5000
+
+# Startbefehl
 CMD ["python", "app.py"]
