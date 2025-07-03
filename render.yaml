@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: lotto-checker-backend
+    env: python
+    buildCommand: ""
+    startCommand: python app.py
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: FLASK_ENV
+        value: production
+    autoDeploy: true
