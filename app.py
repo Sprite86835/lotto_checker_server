@@ -1,10 +1,10 @@
-import pytesseract
 from flask import Flask, request, send_file
 from flask_cors import CORS
+import pytesseract
 from pytesseract import Output
 import cv2
 import numpy as np
-import tempfile
+import io
 
 app = Flask(__name__)
 CORS(app)
@@ -12,34 +12,48 @@ CORS(app)
 @app.route('/check_lotto', methods=['POST'])
 def check_lotto():
     if 'image' not in request.files or 'numbers' not in request.form:
-        return 'Bild oder Zahlen fehlen', 400
+        return "Missing image or numbers", 400
 
+    # Eingabedaten laden
     file = request.files['image']
-    numbers_raw = request.form['numbers']
-    try:
-        drawn_numbers = set(map(int, numbers_raw.replace(',', ' ').split()))
-    except ValueError:
-        return 'Ungültige Zahlen', 400
+    numbers_str = request.form['numbers']
+    print(f"Empfangene Zahlen: {numbers_str}")
+    drawn_numbers = [num.strip() for num in numbers_str.split(',') if num.strip().isdigit()]
+    print(f"Parsed Zahlen: {drawn_numbers}")
 
-    npimg = np.frombuffer(file.read(), np.uint8)
-    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    # Bild verarbeiten
+    in_memory_file = io.BytesIO()
+    file.save(in_memory_file)
+    data = np.frombuffer(in_memory_file.getvalue(), dtype=np.uint8)
+    img = cv2.imdecode(data, cv2.IMREAD_COLOR)
 
-    data = pytesseract.image_to_data(img, config='--psm 6 outputbase digits', output_type=Output.DICT)
+    # OCR-Konfiguration
+    config = '--psm 6'
+    data = pytesseract.image_to_data(img, config=config, output_type=Output.DICT)
+    print(f"OCR Daten: {data['text']}")
 
-    for i in range(len(data['text'])):
-        text = data['text'][i].strip()
-        if text.isdigit():
-            zahl = int(text)
-            if zahl in drawn_numbers:
-                x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
-                center = (x + w // 2, y + h // 2)
-                radius = max(w, h) // 2 + 5
-                cv2.circle(img, center, radius, (0, 0, 255), 2)
+    for i, text in enumerate(data['text']):
+        text = text.strip()
+        if not text.isdigit():
+            continue
+        if text in drawn_numbers:
+            x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+            print(f"Gefundene Zahl: {text} bei Position: ({x},{y},{w},{h})")
+            # Zeichne ein Rechteck um gefundene Zahlen
+            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-    cv2.imwrite(tmp.name, img)
-    tmp.close()
-    return send_file(tmp.name, mimetype='image/jpeg')
+    # Bild zurücksenden
+    _, img_encoded = cv2.imencode('.jpg', img)
+    return send_file(
+        io.BytesIO(img_encoded.tobytes()),
+        mimetype='image/jpeg',
+        as_attachment=False,
+        download_name='result.jpg'
+    )
+
+@app.route('/')
+def index():
+    return "Lotto Checker Server is running", 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
