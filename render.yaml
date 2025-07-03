@@ -1,7 +1,7 @@
 services:
   - type: web
-    name: lotto-checker-backend
-    env: python
+    name: lotto-checker-server
+    env: docker
     buildCommand: ""
     startCommand: python app.py
     plan: free
