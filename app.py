@@ -1,76 +1,69 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, Response
 from flask_cors import CORS
+import pytesseract
 import cv2
 import numpy as np
-import pytesseract
+from PIL import Image
 from pytesseract import Output
-import io
+import json
+from io import BytesIO
+from email.generator import BytesGenerator
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
 
 app = Flask(__name__)
 CORS(app)
 
+@app.route('/')
+def index():
+    return 'Lotto Checker API läuft!'
+
 @app.route('/check_lotto', methods=['POST'])
 def check_lotto():
-    file = request.files.get('image')
-    numbers_raw = request.form.get('numbers', '')
+    if 'image' not in request.files or 'numbers' not in request.form:
+        return {'error': 'Bild oder Zahlen fehlen'}, 400
 
-    if not file or not numbers_raw:
-        return jsonify({"error": "Missing image or numbers"}), 400
+    image_file = request.files['image']
+    user_numbers = [num.strip() for num in request.form['numbers'].split(',')]
 
-    try:
-        numbers = list(map(int, numbers_raw.split(',')))
-    except ValueError:
-        return jsonify({"error": "Invalid number format. Use comma-separated integers."}), 400
+    # Bild vorbereiten
+    img_pil = Image.open(image_file).convert('RGB')
+    img_cv = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
-    # Bild lesen und vorbereiten
-    file_bytes = np.frombuffer(file.read(), np.uint8)
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 140, 255, cv2.THRESH_BINARY_INV)
+    # OCR durchführen
+    data = pytesseract.image_to_data(img_cv, config='--psm 6 outputbase digits', output_type=Output.DICT)
 
-    # OCR mit nur Ziffern
-    config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789'
-    data = pytesseract.image_to_data(thresh, config=config, output_type=Output.DICT)
-
-    detected_numbers = []
-    matched_numbers = []
-
-    for i, text in enumerate(data['text']):
-        text = text.strip()
+    recognized = []
+    for i in range(len(data['text'])):
+        text = data['text'][i].strip()
         if text.isdigit():
-            num = int(text)
-            detected_numbers.append(num)
+            recognized.append(text)
+            (x, y, w, h) = (data['left'][i], data['top'][i], data['width'][i], data['height'][i])
+            color = (0, 0, 255) if text in user_numbers else (255, 0, 0)
+            cv2.rectangle(img_cv, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(img_cv, text, (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-            if num in numbers:
-                matched_numbers.append(num)
-                x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
-                cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 255), 2)  # Rot
+    # Bild in Bytes konvertieren
+    result_image = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+    pil_result = Image.fromarray(result_image)
+    img_io = BytesIO()
+    pil_result.save(img_io, 'JPEG')
+    img_io.seek(0)
 
-    # Codiertes Bild
-    _, encoded_img = cv2.imencode('.jpg', img)
-    image_stream = io.BytesIO(encoded_img.tobytes())
+    # JSON-Daten vorbereiten
+    json_data = json.dumps({'recognized': recognized})
 
-    # Antwort: JSON mit Treffer + Bild
-    response_data = {
-        "numbers_from_ticket": sorted(list(set(detected_numbers))),
-        "matched_numbers": sorted(list(set(matched_numbers)))
-    }
+    # Multipart-Antwort bauen
+    multipart = MIMEMultipart('mixed')
+    multipart.attach(MIMEImage(img_io.read(), _subtype='jpeg', name='result.jpg'))
+    multipart.attach(MIMEApplication(json_data, _subtype='json', name='data.json'))
 
-    # Multipart: JSON + Bild
-    from flask import Response
-    import json
-    boundary = 'MULTIPART_BOUNDARY'
+    out = BytesIO()
+    g = BytesGenerator(out, mangle_from_=False)
+    g.flatten(multipart)
 
-    multipart_body = (
-        f"--{boundary}\r\n"
-        f"Content-Type: application/json\r\n\r\n"
-        f"{json.dumps(response_data)}\r\n"
-        f"--{boundary}\r\n"
-        f"Content-Type: image/jpeg\r\n"
-        f"Content-Disposition: attachment; filename=result.jpg\r\n\r\n"
-    ).encode('utf-8') + image_stream.read() + f"\r\n--{boundary}--".encode('utf-8')
+    return Response(out.getvalue(), content_type=f'multipart/mixed; boundary="{multipart.get_boundary()}"')
 
-    return Response(
-        multipart_body,
-        mimetype=f'multipart/mixed; boundary={boundary}'
-    )
+if __name__ == '__main__':
+    app.run(debug=True)
