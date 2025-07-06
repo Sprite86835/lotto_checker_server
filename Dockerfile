@@ -1,25 +1,32 @@
-# Basis-Image mit Python 3.13 slim
-FROM python:3.13-slim
+# Basis-Image mit Python und minimalem Debian
+FROM python:3.10-slim
 
-# Systemabhängigkeiten installieren (libgl1 für OpenCV, tesseract für OCR)
+# Systempakete installieren, inkl. Tesseract und OpenCV-Abhängigkeiten
 RUN apt-get update && apt-get install -y \
-    libgl1 \
     tesseract-ocr \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    libgl1 \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Arbeitsverzeichnis im Container
+# Arbeitsverzeichnis setzen
 WORKDIR /app
 
-# Anforderungen kopieren und installieren
-COPY requirements.txt .
+# Kopiere requirements, falls du eines hast (optional)
+# COPY requirements.txt .
+# RUN pip install -r requirements.txt
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Oder direkt benötigte Pakete installieren
+RUN pip install flask flask-cors pytesseract opencv-python pillow
 
-# Quellcode kopieren
+# Projektdateien kopieren
 COPY . .
 
-# Port für Flask-Anwendung (Standard 5000)
-EXPOSE 5000
+# Port für Render (Render sucht automatisch $PORT)
+ENV PORT=5000
 
 # Startbefehl
 CMD ["python", "app.py"]
